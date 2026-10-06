@@ -56,10 +56,13 @@ helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
 helm repo update
 
 echo "==> ingress-nginx"
+# Plain defaults — a regular Deployment behind a LoadBalancer Service. k3s's
+# built-in ServiceLB (Klipper) already binds host ports 80/443 and forwards
+# to it with no extra config; setting hostNetwork/DaemonSet on top of that
+# makes the controller pod fight ServiceLB's own svclb-* pod for the same
+# host ports, and the scheduler refuses to place the loser.
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-  -n ingress-nginx --create-namespace \
-  --set controller.hostNetwork=true \
-  --set controller.kind=DaemonSet
+  -n ingress-nginx --create-namespace
 
 echo "==> cert-manager"
 helm upgrade --install cert-manager jetstack/cert-manager \

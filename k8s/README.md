@@ -58,7 +58,7 @@ helm install cert-manager jetstack/cert-manager -n cert-manager --create-namespa
 
 Создать `ClusterIssuer` (`letsencrypt-prod`, как в аннотации `ingress.yaml`) под Let's Encrypt — пример есть в [документации cert-manager](https://cert-manager.io/docs/configuration/acme/).
 
-DNS A-запись `ifdancoder.ru` должна указывать на внешний IP сервера (ingress-nginx слушает `hostPort`/`hostNetwork` или получает `LoadBalancer`/`NodePort` в зависимости от настроек — на одиночном VPS обычно проще `hostNetwork: true` в values чарта).
+DNS A-запись `ifdancoder.ru` должна указывать на внешний IP сервера. Порты 80/443 на сам сервер пробрасывает встроенный в k3s ServiceLB (Klipper) — он сам вешается на хост-порты и форвардит на `Service` типа `LoadBalancer`, которым ingress-nginx и ставится по умолчанию. Не переопределяй `controller.hostNetwork`/`controller.kind` — это сталкивает контроллер с ServiceLB за одни и те же хост-порты, и под зависает в `Pending`.
 
 #### 2. Namespace и права для CI (один раз, под админским kubeconfig)
 
