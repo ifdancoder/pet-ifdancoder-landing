@@ -8,7 +8,9 @@
 # shares the same environment.
 #
 # What it does NOT do (needs a human):
-#   - fill real values into /opt/landing/secret.env (DB_PASSWORD, ADMIN_PATH)
+#   - add APP_KEY / DB_PASSWORD / ADMIN_PATH as GitHub repository secrets
+#     (Settings -> Secrets and variables -> Actions) — this script prints a
+#     ready-to-use APP_KEY at the end, you still have to paste it in
 #   - register the GitHub Actions self-hosted runner (needs a live token
 #     from GitHub's UI, see k8s/README.md)
 set -euo pipefail
@@ -136,26 +138,21 @@ DEPLOY_KUBECONFIG="/home/${RUNNER_USER}/.kube/config"
 sudo -u "$RUNNER_USER" env "KUBECONFIG=${DEPLOY_KUBECONFIG}" kubectl get pods -n landing || true
 sudo -u "$RUNNER_USER" env "KUBECONFIG=${DEPLOY_KUBECONFIG}" kubectl get nodes || true
 
-echo "==> секреты приложения"
-mkdir -p /opt/landing
-if [ ! -f /opt/landing/secret.env ]; then
-  cp "$REPO_DIR/k8s/secret.env.example" /opt/landing/secret.env
-fi
-
-if grep -q '^APP_KEY=$' /opt/landing/secret.env; then
-  echo "==> APP_KEY (одноразовый контейнер, без php на хосте)"
-  APP_KEY=$(docker run --rm composer:2 php -r "echo 'base64:'.base64_encode(random_bytes(32));")
-  sed -i "s|^APP_KEY=.*|APP_KEY=${APP_KEY}|" /opt/landing/secret.env
-fi
-
-chown "${RUNNER_USER}:${RUNNER_USER}" /opt/landing/secret.env
-chmod 600 /opt/landing/secret.env
+echo "==> APP_KEY для GitHub Secrets (одноразовый контейнер, без php на хосте)"
+APP_KEY=$(docker run --rm composer:2 php -r "echo 'base64:'.base64_encode(random_bytes(32));")
 
 cat <<EOF3
 
-Готово. Осталось руками:
-  1. Отредактировать /opt/landing/secret.env — заполнить DB_PASSWORD и ADMIN_PATH
-     (APP_KEY уже сгенерирован).
+Готово. Секреты приложения теперь живут в GitHub (Settings -> Secrets and
+variables -> Actions -> New repository secret), а не на этом сервере —
+workflow сам пишет k8s/secret.env на лету при каждом деплое. Завести там:
+
+  APP_KEY      ${APP_KEY}
+  DB_PASSWORD  <сгенерировать: openssl rand -base64 24>
+  ADMIN_PATH   <сгенерировать: openssl rand -hex 8>
+
+Осталось руками:
+  1. Вписать три секрета выше в GitHub.
   2. Завести DNS A-запись домена на этот сервер, если ещё не сделано.
   3. Зарегистрировать GitHub Actions self-hosted runner от имени
      "${RUNNER_USER}" (см. k8s/README.md, раздел про runner).

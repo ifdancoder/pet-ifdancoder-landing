@@ -7,7 +7,7 @@
 - `namespace.yaml` — namespace `landing`, изолирует ресурсы этого сайта от других сайтов на том же кластере. Применяется один раз вручную, не через CI (см. ниже, почему).
 - `rbac.yaml` — ServiceAccount `ci-deployer` с правами только внутри namespace `landing`. Тоже применяется один раз вручную — сервисный аккаунт не должен сам себе выдавать права.
 - `configmap.yaml` — несекретные переменные окружения приложения.
-- `secret.env.example` — список переменных для секрета (`APP_KEY`, `DB_PASSWORD`, `ADMIN_PATH`). На сервере реальные значения лежат вне репозитория, в `/opt/landing/secret.env` (см. ниже).
+- `secret.env.example` — список переменных для секрета (`APP_KEY`, `DB_PASSWORD`, `ADMIN_PATH`). Реальные значения живут в GitHub repository secrets, не на сервере и не в репозитории (см. ниже).
 - `postgres.yaml` — StatefulSet + headless Service для PostgreSQL с отдельным PVC под данные.
 - `pvc.yaml` — PVC для `storage/app/public` (загруженные фото), ReadWriteOnce.
 - `deployment.yaml` — Deployment приложения (1 реплика, initContainer прогоняет миграции перед стартом). Тег образа — плейсхолдер `__TAG__`, его подставляет CI.
@@ -18,7 +18,7 @@
 
 ### Автоматически — `k8s/bootstrap.sh`
 
-Ставит k3s (без Traefik, вместо него ingress-nginx), Docker, пользователя `deploy-landing`, клонирует репозиторий, поднимает ingress-nginx + cert-manager + ClusterIssuer, применяет `namespace.yaml` + `rbac.yaml`, настраивает sudoers для импорта образов, генерирует урезанный kubeconfig для `deploy-landing`, создаёт `/opt/landing/secret.env` с готовым `APP_KEY`. Весь скрипт — один процесс bash, поэтому никаких проблем с `export`, не доживающим до другой сессии.
+Ставит k3s (без Traefik, вместо него ingress-nginx), Docker, пользователя `deploy-landing`, клонирует репозиторий, поднимает ingress-nginx + cert-manager + ClusterIssuer, применяет `namespace.yaml` + `rbac.yaml`, настраивает sudoers для импорта образов, генерирует урезанный kubeconfig для `deploy-landing`, печатает готовый `APP_KEY` для GitHub Secrets. Весь скрипт — один процесс bash, поэтому никаких проблем с `export`, не доживающим до другой сессии.
 
 Сначала клонировать репозиторий (разово, под root/sudo-пользователем, у которого есть доступ к GitHub) просто чтобы достать сам скрипт:
 
@@ -31,11 +31,10 @@ sudo bash /tmp/landing-bootstrap/k8s/bootstrap.sh
 
 После скрипта остаётся только:
 
-```bash
-sudo $EDITOR /opt/landing/secret.env   # DB_PASSWORD и ADMIN_PATH — APP_KEY уже на месте
-```
+1. Скопировать `APP_KEY`, который скрипт напечатал в конце, в GitHub repository secrets (см. раздел «GitHub repository secrets» ниже).
+2. Зарегистрировать runner (следующий раздел).
 
-и зарегистрировать runner (следующий раздел) — дальше переходи к «Первый деплой».
+Дальше переходи к «Первый деплой».
 
 ### Вручную, шаг за шагом (если `bootstrap.sh` не подошёл или нужно понять, что происходит внутри)
 
@@ -142,21 +141,17 @@ sudo -u deploy-landing env KUBECONFIG=/home/deploy-landing/.kube/config kubectl 
 sudo -u deploy-landing env KUBECONFIG=/home/deploy-landing/.kube/config kubectl get nodes                   # Forbidden
 ```
 
-#### 6. Продакшен-секреты
+#### 6. GitHub repository secrets
 
-Секреты не живут в git и не живут даже в рабочей копии репозитория на раннере — только в `/opt/landing/secret.env`, который workflow копирует в `k8s/secret.env` на каждом деплое:
+Секреты не живут ни в git, ни на сервере — только в GitHub (Settings репозитория → Secrets and variables → Actions → New repository secret). Завести три:
 
-```bash
-sudo mkdir -p /opt/landing
-sudo cp k8s/secret.env.example /opt/landing/secret.env
-sudo $EDITOR /opt/landing/secret.env   # APP_KEY, DB_PASSWORD, ADMIN_PATH
-sudo chown deploy-landing:deploy-landing /opt/landing/secret.env
-sudo chmod 600 /opt/landing/secret.env
-```
+| Secret | Как получить |
+|---|---|
+| `APP_KEY` | `php artisan key:generate --show` |
+| `DB_PASSWORD` | `openssl rand -base64 24` |
+| `ADMIN_PATH` | `openssl rand -hex 8` — непредсказуемый путь для админки |
 
-Владелец и права — именно `deploy-landing`, под которым работает раннер и который этот файл читает на каждом деплое; больше никому в системе доступ не нужен.
-
-`APP_KEY` сгенерировать через `php artisan key:generate --show`.
+Workflow сам пишет их в `k8s/secret.env` на лету при каждом деплое (шаг «Write production secrets» в `.github/workflows/deploy.yml`) — файл существует только в рабочей копии раннера на время одного запуска job'ы, в логах GitHub маскирует эти значения автоматически.
 
 ## GitHub Actions self-hosted runner (нужен в любом случае — и после скрипта, и после ручных шагов)
 
@@ -186,7 +181,7 @@ sudo ./svc.sh stop && sudo ./svc.sh start
 
 1. `docker build` образа с тегом `landing:<commit-sha>`.
 2. `docker save | sudo k3s ctr images import -` — заносит образ прямо в containerd кластера, без registry.
-3. Копирует `/opt/landing/secret.env` в `k8s/secret.env`.
+3. Пишет `k8s/secret.env` из GitHub repository secrets (`APP_KEY`, `DB_PASSWORD`, `ADMIN_PATH`).
 4. Подставляет `<commit-sha>` вместо `__TAG__` в `k8s/deployment.yaml` — тег меняется каждый раз, поэтому `kubectl apply` реально перекатывает Deployment, а не просто применяет идентичный манифест.
 5. `kubectl apply -k k8s/`, затем ждёт `kubectl rollout status`.
 
@@ -196,7 +191,7 @@ sudo ./svc.sh stop && sudo ./svc.sh start
 
 ## Несколько сайтов на одном кластере
 
-Каждый сайт — свой namespace и свой `Ingress` со своим `host`, но один общий Ingress Controller и один общий cert-manager на весь кластер (уже установлены). У другого сайта будет свой namespace, свой workflow и свой `/opt/<site>/secret.env` — ingress-nginx и cert-manager просто обслуживают оба по их собственным `host`.
+Каждый сайт — свой namespace, свой workflow и свои GitHub repository secrets (секреты у GitHub привязаны к репозиторию, так что между сайтами они и не пересекаются сами по себе), но один общий Ingress Controller и один общий cert-manager на весь кластер (уже установлены) — ingress-nginx и cert-manager просто обслуживают оба по их собственным `host`.
 
 ## Масштабирование
 

@@ -29,8 +29,19 @@ jobs:
       - name: Import image into containerd
         run: docker save landing:${{ github.sha }} | sudo /usr/local/bin/k3s ctr images import -
 
-      - name: Load production secrets
-        run: cp /opt/landing/secret.env k8s/secret.env
+      - name: Write production secrets
+        # k8s/secret.env is gitignored and only ever exists transiently in
+        # the runner's workspace for this one job — it's generated fresh
+        # from GitHub repository secrets, never read from or written to disk
+        # outside this run. GitHub masks these values in the log automatically.
+        run: |
+          cat > k8s/secret.env <<EOF
+          APP_KEY=${{ secrets.APP_KEY }}
+          DB_DATABASE=landing
+          DB_USERNAME=landing
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          ADMIN_PATH=${{ secrets.ADMIN_PATH }}
+          EOF
 
       - name: Pin image tag for this deploy
         run: sed -i "s/__TAG__/${{ github.sha }}/g" k8s/deployment.yaml
