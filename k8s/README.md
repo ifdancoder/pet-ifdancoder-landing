@@ -16,7 +16,30 @@
 
 ## Одноразовая настройка свежего сервера
 
-### 1. k3s
+### Автоматически — `k8s/bootstrap.sh`
+
+Ставит k3s (без Traefik, вместо него ingress-nginx), Docker, пользователя `deploy-landing`, клонирует репозиторий, поднимает ingress-nginx + cert-manager + ClusterIssuer, применяет `namespace.yaml` + `rbac.yaml`, настраивает sudoers для импорта образов, генерирует урезанный kubeconfig для `deploy-landing`, создаёт `/opt/landing/secret.env` с готовым `APP_KEY`. Весь скрипт — один процесс bash, поэтому никаких проблем с `export`, не доживающим до другой сессии.
+
+Сначала клонировать репозиторий (разово, под root/sudo-пользователем, у которого есть доступ к GitHub) просто чтобы достать сам скрипт:
+
+```bash
+git clone https://github.com/ifdancoder/pet-ifdancoder-landing.git /tmp/landing-bootstrap
+sudo bash /tmp/landing-bootstrap/k8s/bootstrap.sh
+```
+
+Если репозиторий приватный, подставить URL с токеном или использовать SSH-ключ, которым root уже умеет пользоваться.
+
+После скрипта остаётся только:
+
+```bash
+sudo $EDITOR /opt/landing/secret.env   # DB_PASSWORD и ADMIN_PATH — APP_KEY уже на месте
+```
+
+и зарегистрировать runner (следующий раздел) — дальше переходи к «Первый деплой».
+
+### Вручную, шаг за шагом (если `bootstrap.sh` не подошёл или нужно понять, что происходит внутри)
+
+#### 1. k3s
 
 Traefik отключаем — вместо него ставим ingress-nginx, чтобы `ingressClassName: nginx` в `ingress.yaml` совпадал. Kubeconfig оставляем на правах по умолчанию (`600`, только root) — раннер получит отдельный, урезанный, не этот:
 
@@ -38,7 +61,7 @@ helm install cert-manager jetstack/cert-manager -n cert-manager --create-namespa
 
 DNS A-запись `ifdancoder.ru` должна указывать на внешний IP сервера (ingress-nginx слушает `hostPort`/`hostNetwork` или получает `LoadBalancer`/`NodePort` в зависимости от настроек — на одиночном VPS обычно проще `hostNetwork: true` в values чарта).
 
-### 2. Namespace и права для CI (один раз, под админским kubeconfig)
+#### 2. Namespace и права для CI (один раз, под админским kubeconfig)
 
 ```bash
 kubectl apply -f k8s/namespace.yaml
@@ -47,13 +70,13 @@ kubectl apply -f k8s/rbac.yaml
 
 `rbac.yaml` создаёт ServiceAccount `ci-deployer` с правами только на ресурсы внутри `landing` (Deployment, StatefulSet, Service, ConfigMap, Secret, PVC, Ingress) — ни других namespace, ни секретов других сайтов, ни самого кластера он не видит.
 
-### 3. Docker (для сборки образов)
+#### 3. Docker (для сборки образов)
 
 ```bash
 curl -fsSL https://get.docker.com | sh
 ```
 
-### 4. Отдельный системный пользователь под раннер
+#### 4. Отдельный системный пользователь под раннер
 
 Не использовать существующего admin-пользователя — завести отдельного, специально под CI:
 
@@ -71,7 +94,7 @@ echo 'deploy-landing ALL=(root) NOPASSWD: /usr/local/bin/k3s ctr images import -
   | sudo tee /etc/sudoers.d/k3s-import
 ```
 
-### 5. Урезанный kubeconfig для этого пользователя
+#### 5. Урезанный kubeconfig для этого пользователя
 
 ```bash
 sudo -u deploy-landing mkdir -p /home/deploy-landing/.kube
@@ -119,7 +142,23 @@ sudo -u deploy-landing kubectl get pods -n kube-system     # Forbidden
 sudo -u deploy-landing kubectl get nodes                   # Forbidden
 ```
 
-### 6. GitHub Actions self-hosted runner
+#### 6. Продакшен-секреты
+
+Секреты не живут в git и не живут даже в рабочей копии репозитория на раннере — только в `/opt/landing/secret.env`, который workflow копирует в `k8s/secret.env` на каждом деплое:
+
+```bash
+sudo mkdir -p /opt/landing
+sudo cp k8s/secret.env.example /opt/landing/secret.env
+sudo $EDITOR /opt/landing/secret.env   # APP_KEY, DB_PASSWORD, ADMIN_PATH
+sudo chown deploy-landing:deploy-landing /opt/landing/secret.env
+sudo chmod 600 /opt/landing/secret.env
+```
+
+Владелец и права — именно `deploy-landing`, под которым работает раннер и который этот файл читает на каждом деплое; больше никому в системе доступ не нужен.
+
+`APP_KEY` сгенерировать через `php artisan key:generate --show`.
+
+## GitHub Actions self-hosted runner (нужен в любом случае — и после скрипта, и после ручных шагов)
 
 Зарегистрировать на этот репозиторий (Settings → Actions → Runners → New self-hosted runner — GitHub даст команды `config.sh` с токеном) **от имени `deploy-landing`**, поставить как systemd-сервис:
 
@@ -140,22 +179,6 @@ sudo ./svc.sh start
 echo "KUBECONFIG=/home/deploy-landing/.kube/config" | sudo -u deploy-landing tee -a ~deploy-landing/actions-runner/.env
 sudo ./svc.sh stop && sudo ./svc.sh start
 ```
-
-### 7. Продакшен-секреты
-
-Секреты не живут в git и не живут даже в рабочей копии репозитория на раннере — только в `/opt/landing/secret.env`, который workflow копирует в `k8s/secret.env` на каждом деплое:
-
-```bash
-sudo mkdir -p /opt/landing
-sudo cp k8s/secret.env.example /opt/landing/secret.env
-sudo $EDITOR /opt/landing/secret.env   # APP_KEY, DB_PASSWORD, ADMIN_PATH
-sudo chown deploy-landing:deploy-landing /opt/landing/secret.env
-sudo chmod 600 /opt/landing/secret.env
-```
-
-Владелец и права — именно `deploy-landing`, под которым работает раннер и который этот файл читает на каждом деплое; больше никому в системе доступ не нужен.
-
-`APP_KEY` сгенерировать через `php artisan key:generate --show`.
 
 ## Что делает `.github/workflows/deploy.yml`
 
