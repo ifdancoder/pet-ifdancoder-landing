@@ -1,0 +1,46 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t landing:${{ github.sha }} .
+
+      - name: Import image into containerd
+        run: docker save landing:${{ github.sha }} | sudo /usr/local/bin/k3s ctr images import -
+
+      - name: Load production secrets
+        run: cp /opt/landing/secret.env k8s/secret.env
+
+      - name: Pin image tag for this deploy
+        run: sed -i "s/__TAG__/${{ github.sha }}/g" k8s/deployment.yaml
+
+      - name: Apply manifests
+        run: kubectl apply -k k8s/
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/landing -n landing --timeout=180s
+
+      - name: Drop the build-local copy
+        if: always()
+        run: docker rmi landing:${{ github.sha }} || true

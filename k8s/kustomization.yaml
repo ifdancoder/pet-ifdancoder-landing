@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# namespace.yaml and rbac.yaml are NOT listed here on purpose: the CI
+# service account only has rights inside the "landing" namespace (see
+# rbac.yaml), and Namespace is a cluster-scoped object a namespaced Role can
+# never grant access to. Both are applied once, by hand, with the admin
+# kubeconfig, before CI ever runs — see k8s/README.md.
+resources:
+  - configmap.yaml
+  - postgres.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+# Reads k8s/secret.env (gitignored, not this repo's committed .example file)
+# and turns it into a "landing-secret" Secret. The name gets a content hash
+# suffix — kustomize rewrites every envFrom.secretRef that points at
+# "landing-secret" to match, and the hash change rolls the Deployment and
+# StatefulSet automatically whenever a value in secret.env changes.
+secretGenerator:
+  - name: landing-secret
+    namespace: landing
+    envs:
+      - secret.env

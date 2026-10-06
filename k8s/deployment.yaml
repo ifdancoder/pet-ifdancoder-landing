@@ -1,0 +1,72 @@
+# "__TAG__" in the image references below is substituted by the deploy
+# workflow (.github/workflows/deploy.yml) with the git commit SHA, so the pod
+# spec actually changes on every deploy and triggers a real rollout. There is
+# no registry — the image must already be imported into the node's
+# containerd before this is applied, hence imagePullPolicy: Never.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: landing
+  namespace: landing
+spec:
+  # Local disk storage (landing-storage PVC, ReadWriteOnce) only safely supports
+  # a single writer. Scale beyond 1 replica only after switching FILESYSTEM_DISK
+  # to "s3" (already wired in config/filesystems.php) so uploads are shared.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: landing
+  template:
+    metadata:
+      labels:
+        app: landing
+    spec:
+      initContainers:
+        - name: migrate
+          image: landing:__TAG__
+          imagePullPolicy: Never
+          command: ["php", "artisan", "migrate", "--force"]
+          envFrom:
+            - configMapRef:
+                name: landing-config
+            - secretRef:
+                name: landing-secret
+      containers:
+        - name: app
+          image: landing:__TAG__
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: landing-config
+            - secretRef:
+                name: landing-secret
+          volumeMounts:
+            - name: storage
+              mountPath: /var/www/html/storage/app/public
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: landing-storage
