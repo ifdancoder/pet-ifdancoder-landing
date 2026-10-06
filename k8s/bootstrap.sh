@@ -129,8 +129,12 @@ chmod 600 "/home/${RUNNER_USER}/.kube/config"
 chown -R "${RUNNER_USER}:${RUNNER_USER}" "/home/${RUNNER_USER}/.kube"
 
 echo "==> проверка прав ${RUNNER_USER} (вторая строка ниже должна быть Forbidden — это ожидаемо)"
-sudo -u "$RUNNER_USER" kubectl get pods -n landing || true
-sudo -u "$RUNNER_USER" kubectl get nodes || true
+# KUBECONFIG передаётся явно, а не через export выше: на некоторых системах
+# "sudo -u" всё равно протаскивает переменные окружения вызывающего процесса,
+# и deploy-landing получил бы /etc/rancher/k3s/k3s.yaml вместо своего файла.
+DEPLOY_KUBECONFIG="/home/${RUNNER_USER}/.kube/config"
+sudo -u "$RUNNER_USER" env "KUBECONFIG=${DEPLOY_KUBECONFIG}" kubectl get pods -n landing || true
+sudo -u "$RUNNER_USER" env "KUBECONFIG=${DEPLOY_KUBECONFIG}" kubectl get nodes || true
 
 echo "==> секреты приложения"
 mkdir -p /opt/landing

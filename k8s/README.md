@@ -134,12 +134,12 @@ sudo chmod 600 /home/deploy-landing/.kube/config
 sudo chown -R deploy-landing:deploy-landing /home/deploy-landing/.kube
 ```
 
-Проверить, что доступ реально урезан (из-под `deploy-landing`):
+Проверить, что доступ реально урезан (из-под `deploy-landing`). `KUBECONFIG` здесь передаётся явно через `env`, а не через `export` — на некоторых системах `sudo -u` всё равно протаскивает переменные окружения вызывающего, и `deploy-landing` получил бы `/etc/rancher/k3s/k3s.yaml` (к которому у него нет прав) вместо своего урезанного файла:
 
 ```bash
-sudo -u deploy-landing kubectl get pods -n landing        # работает
-sudo -u deploy-landing kubectl get pods -n kube-system     # Forbidden
-sudo -u deploy-landing kubectl get nodes                   # Forbidden
+sudo -u deploy-landing env KUBECONFIG=/home/deploy-landing/.kube/config kubectl get pods -n landing        # работает
+sudo -u deploy-landing env KUBECONFIG=/home/deploy-landing/.kube/config kubectl get pods -n kube-system     # Forbidden
+sudo -u deploy-landing env KUBECONFIG=/home/deploy-landing/.kube/config kubectl get nodes                   # Forbidden
 ```
 
 #### 6. Продакшен-секреты
