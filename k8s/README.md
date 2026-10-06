@@ -145,11 +145,11 @@ sudo -u deploy-landing env KUBECONFIG=/home/deploy-landing/.kube/config kubectl 
 
 Секреты не живут ни в git, ни на сервере — только в GitHub (Settings репозитория → Secrets and variables → Actions → New repository secret). Завести три:
 
-| Secret | Как получить |
-|---|---|
-| `APP_KEY` | `php artisan key:generate --show` |
-| `DB_PASSWORD` | `openssl rand -base64 24` |
-| `ADMIN_PATH` | `openssl rand -hex 8` — непредсказуемый путь для админки |
+| Secret        | Как получить                                             |
+| ------------- | -------------------------------------------------------- |
+| `APP_KEY`     | `php artisan key:generate --show`                        |
+| `DB_PASSWORD` | `openssl rand -base64 24`                                |
+| `ADMIN_PATH`  | `openssl rand -hex 8` — непредсказуемый путь для админки |
 
 Workflow сам пишет их в `k8s/secret.env` на лету при каждом деплое (шаг «Write production secrets» в `.github/workflows/deploy.yml`) — файл существует только в рабочей копии раннера на время одного запуска job'ы, в логах GitHub маскирует эти значения автоматически.
 
