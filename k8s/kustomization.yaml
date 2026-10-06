@@ -7,12 +7,12 @@ kind: Kustomization
 # never grant access to. Both are applied once, by hand, with the admin
 # kubeconfig, before CI ever runs — see k8s/README.md.
 resources:
-  - configmap.yaml
-  - postgres.yaml
-  - pvc.yaml
-  - deployment.yaml
-  - service.yaml
-  - ingress.yaml
+    - configmap.yaml
+    - postgres.yaml
+    - pvc.yaml
+    - deployment.yaml
+    - service.yaml
+    - ingress.yaml
 
 # Reads k8s/secret.env (gitignored, not this repo's committed .example file)
 # and turns it into a "landing-secret" Secret. The name gets a content hash
@@ -20,7 +20,7 @@ resources:
 # "landing-secret" to match, and the hash change rolls the Deployment and
 # StatefulSet automatically whenever a value in secret.env changes.
 secretGenerator:
-  - name: landing-secret
-    namespace: landing
-    envs:
-      - secret.env
+    - name: landing-secret
+      namespace: landing
+      envs:
+          - secret.env

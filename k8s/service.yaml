@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: landing
-  namespace: landing
+    name: landing
+    namespace: landing
 spec:
-  selector:
-    app: landing
-  ports:
-    - port: 80
-      targetPort: 8080
+    selector:
+        app: landing
+    ports:
+        - port: 80
+          targetPort: 8080

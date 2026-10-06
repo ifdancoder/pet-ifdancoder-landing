@@ -4,38 +4,47 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: ci-deployer
-  namespace: landing
+    name: ci-deployer
+    namespace: landing
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: ci-deployer
-  namespace: landing
+    name: ci-deployer
+    namespace: landing
 rules:
-  - apiGroups: [""]
-    resources: ["configmaps", "secrets", "services", "persistentvolumeclaims", "pods", "pods/log", "events"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ['']
+      resources:
+          [
+              'configmaps',
+              'secrets',
+              'services',
+              'persistentvolumeclaims',
+              'pods',
+              'pods/log',
+              'events',
+          ]
+      verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
+    - apiGroups: ['apps']
+      resources: ['deployments', 'statefulsets']
+      verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
+    - apiGroups: ['networking.k8s.io']
+      resources: ['ingresses']
+      verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete']
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: ci-deployer
-  namespace: landing
-subjects:
-  - kind: ServiceAccount
     name: ci-deployer
     namespace: landing
+subjects:
+    - kind: ServiceAccount
+      name: ci-deployer
+      namespace: landing
 roleRef:
-  kind: Role
-  name: ci-deployer
-  apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: ci-deployer
+    apiGroup: rbac.authorization.k8s.io
 ---
 # Explicitly-created Secret of this type gets a long-lived token populated by
 # the API server. Needed because Kubernetes 1.24+ stopped auto-creating one
@@ -44,8 +53,8 @@ roleRef:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: ci-deployer-token
-  namespace: landing
-  annotations:
-    kubernetes.io/service-account.name: ci-deployer
+    name: ci-deployer-token
+    namespace: landing
+    annotations:
+        kubernetes.io/service-account.name: ci-deployer
 type: kubernetes.io/service-account-token
