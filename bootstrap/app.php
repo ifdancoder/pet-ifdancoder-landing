@@ -14,6 +14,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // TLS terminates at the ingress-nginx controller; the pod itself only
+        // ever receives plain HTTP from it. Without this, url()/asset() read
+        // the scheme straight off that request and emit http:// links even
+        // though the browser is on https://, breaking every asset as mixed
+        // content. The pod's Service is ClusterIP-only (no direct public
+        // ingress besides the controller), so trusting every proxy is safe.
+        $middleware->trustProxies(at: '*');
+
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,

@@ -23,6 +23,20 @@ fi
 REPO_URL="${REPO_URL:-https://github.com/ifdancoder/pet-ifdancoder-landing.git}"
 RUNNER_USER="${RUNNER_USER:-deploy-landing}"
 REPO_DIR="/home/${RUNNER_USER}/landing"
+SWAP_SIZE_GB="${SWAP_SIZE_GB:-2}"
+
+echo "==> swap (${SWAP_SIZE_GB}G, if not already present)"
+# k3s + Postgres + the app + ingress-nginx + cert-manager + a CI runner doing
+# "docker build" is a lot for a small VPS. Swap doesn't replace RAM, but it
+# buys the kernel time during a brief spike instead of the node going
+# NotReady and healthy pods getting restarted for no real reason.
+if ! swapon --show | grep -q .; then
+  fallocate -l "${SWAP_SIZE_GB}G" /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
 
 echo "==> k3s"
 if ! command -v k3s >/dev/null 2>&1; then
@@ -61,8 +75,18 @@ echo "==> ingress-nginx"
 # to it with no extra config; setting hostNetwork/DaemonSet on top of that
 # makes the controller pod fight ServiceLB's own svclb-* pod for the same
 # host ports, and the scheduler refuses to place the loser.
+#
+# Looser probe timeouts than the chart default (1s/5 failures): on a small
+# VPS, a concurrent "docker build" during a deploy can starve the node long
+# enough for /healthz to miss a 1s deadline, which restarts a perfectly
+# healthy controller. This doesn't fix an underrun node, just stops it from
+# cascading into an unnecessary restart.
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-  -n ingress-nginx --create-namespace
+  -n ingress-nginx --create-namespace \
+  --set controller.livenessProbe.timeoutSeconds=5 \
+  --set controller.livenessProbe.failureThreshold=10 \
+  --set controller.readinessProbe.timeoutSeconds=5 \
+  --set controller.readinessProbe.failureThreshold=6
 
 echo "==> cert-manager"
 helm upgrade --install cert-manager jetstack/cert-manager \
